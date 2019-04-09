@@ -2,7 +2,7 @@
 #
 # Script to upgrade Libreswan on Ubuntu and Debian
 #
-# Copyright (C) 2016-2018 Lin Song <linsongui@gmail.com>
+# Copyright (C) 2016-2019 Lin Song <linsongui@gmail.com>
 #
 # This work is licensed under the Creative Commons Attribution-ShareAlike 3.0
 # Unported License: http://creativecommons.org/licenses/by-sa/3.0/
@@ -22,10 +22,10 @@ exiterr2() { exiterr "'apt-get install' failed."; }
 
 vpnupgrade() {
 
-os_type="$(lsb_release -si 2>/dev/null)"
+os_type=$(lsb_release -si 2>/dev/null)
 if [ -z "$os_type" ]; then
-  [ -f /etc/os-release  ] && os_type="$(. /etc/os-release  && printf '%s' "$ID")"
-  [ -f /etc/lsb-release ] && os_type="$(. /etc/lsb-release && printf '%s' "$DISTRIB_ID")"
+  [ -f /etc/os-release  ] && os_type=$(. /etc/os-release  && printf '%s' "$ID")
+  [ -f /etc/lsb-release ] && os_type=$(. /etc/lsb-release && printf '%s' "$DISTRIB_ID")
 fi
 if ! printf '%s' "$os_type" | head -n 1 | grep -qiF -e ubuntu -e debian -e raspbian; then
   exiterr "This script only supports Ubuntu and Debian."
@@ -67,17 +67,18 @@ case "$SWAN_VER" in
     [ "$(grep -c "modecfgdns1=" /etc/ipsec.conf)" -gt "1" ] && dns_state=5
     ;;
   3.19|3.2[012])
-    DNS_SRVS=$(grep "modecfgdns=" /etc/ipsec.conf | head -n 1 | cut -d '=' -f 2 | cut -d '"' -f 2)
-    DNS_SRV1=$(printf '%s' "$DNS_SRVS" | cut -d ',' -f 1)
-    DNS_SRV2=$(printf '%s' "$DNS_SRVS" | cut -d ',' -f 2 | sed 's/^ *//')
-    [ -n "$DNS_SRV1" ] && [ -n "$DNS_SRV2" ] && [ "$DNS_SRV1" != "$DNS_SRV2" ] && dns_state=3
-    [ -n "$DNS_SRV1" ] && [ -n "$DNS_SRV2" ] && [ "$DNS_SRV1" = "$DNS_SRV2" ]  && dns_state=4
+    DNS_SRVS=$(grep "modecfgdns=" /etc/ipsec.conf | head -n 1 | cut -d '=' -f 2)
+    DNS_SRVS=$(printf '%s' "$DNS_SRVS" | cut -d '"' -f 2 | cut -d "'" -f 2 | sed 's/,/ /g' | tr -s ' ')
+    DNS_SRV1=$(printf '%s' "$DNS_SRVS" | cut -d ' ' -f 1)
+    DNS_SRV2=$(printf '%s' "$DNS_SRVS" | cut -s -d ' ' -f 2)
+    [ -n "$DNS_SRV1" ] && dns_state=4
+    [ -n "$DNS_SRV1" ] && [ -n "$DNS_SRV2" ] && dns_state=3
     [ "$(grep -c "modecfgdns=" /etc/ipsec.conf)" -gt "1" ] && dns_state=6
     ;;
 esac
 
-ipsec_ver="$(/usr/local/sbin/ipsec --version 2>/dev/null)"
-ipsec_ver_short="$(printf '%s' "$ipsec_ver" | sed -e 's/Linux Libreswan/Libreswan/' -e 's/ (netkey) on .*//')"
+ipsec_ver=$(/usr/local/sbin/ipsec --version 2>/dev/null)
+ipsec_ver_short=$(printf '%s' "$ipsec_ver" | sed -e 's/Linux Libreswan/Libreswan/' -e 's/ (netkey) on .*//')
 if ! printf '%s' "$ipsec_ver" | grep -q "Libreswan"; then
   exiterr "This script requires Libreswan already installed."
 fi
@@ -201,7 +202,7 @@ EOF
 if [ "$(packaging/utils/lswan_detect.sh init)" = "systemd" ]; then
   apt-get -yq install libsystemd-dev || exiterr2
 fi
-NPROCS="$(grep -c ^processor /proc/cpuinfo)"
+NPROCS=$(grep -c ^processor /proc/cpuinfo)
 [ -z "$NPROCS" ] && NPROCS=1
 make "-j$((NPROCS+1))" -s base && make -s install-base
 
@@ -214,10 +215,10 @@ fi
 
 # Update ipsec.conf
 IKE_NEW="  ike=aes256-sha2,aes128-sha2,aes256-sha1,aes128-sha1,aes256-sha2;modp1024,aes128-sha1;modp1024"
-PHASE2_NEW="  phase2alg=aes_gcm256-null,aes_gcm128-null,aes256-sha2_512,aes256-sha2,aes128-sha2,aes256-sha1,aes128-sha1"
+PHASE2_NEW="  phase2alg=aes_gcm-null,aes128-sha1,aes256-sha1,aes256-sha2_512,aes128-sha2,aes256-sha2"
 
 if uname -m | grep -qi '^arm'; then
-  PHASE2_NEW="  phase2alg=aes_gcm256-null,aes_gcm128-null,aes256-sha2,aes128-sha2,aes256-sha1,aes128-sha1"
+  PHASE2_NEW="  phase2alg=aes_gcm-null,aes128-sha1,aes256-sha1,aes128-sha2,aes256-sha2"
 fi
 
 sed -i".old-$(date +%F-%T)" \
@@ -227,10 +228,10 @@ sed -i".old-$(date +%F-%T)" \
     -e "s/^[[:space:]]\+phase2alg=.\+\$/$PHASE2_NEW/g" /etc/ipsec.conf
 
 if [ "$dns_state" = "1" ]; then
-  sed -i -e "s/modecfgdns1=.*/modecfgdns=\"$DNS_SRV1, $DNS_SRV2\"/" \
+  sed -i -e "s/modecfgdns1=.*/modecfgdns=\"$DNS_SRV1 $DNS_SRV2\"/" \
       -e "/modecfgdns2/d" /etc/ipsec.conf
 elif [ "$dns_state" = "2" ]; then
-  sed -i "s/modecfgdns1=.*/modecfgdns=\"$DNS_SRV1\"/" /etc/ipsec.conf
+  sed -i "s/modecfgdns1=.*/modecfgdns=$DNS_SRV1/" /etc/ipsec.conf
 elif [ "$dns_state" = "3" ]; then
   sed -i "/modecfgdns=/a \  modecfgdns2=$DNS_SRV2" /etc/ipsec.conf
   sed -i "s/modecfgdns=.*/modecfgdns1=$DNS_SRV1/" /etc/ipsec.conf
@@ -263,7 +264,7 @@ IMPORTANT: Users upgrading to Libreswan 3.23 or newer must edit /etc/ipsec.conf
 
     with a single line like this:
 
-      modecfgdns="DNS_SERVER_1, DNS_SERVER_2"
+      modecfgdns="DNS_SERVER_1 DNS_SERVER_2"
 
     Then run "sudo service ipsec restart".
 
@@ -273,7 +274,7 @@ cat <<'EOF'
 IMPORTANT: Users downgrading to Libreswan 3.22 or older must edit /etc/ipsec.conf
     and replace all occurrences of this line:
 
-      modecfgdns="DNS_SERVER_1, DNS_SERVER_2"
+      modecfgdns="DNS_SERVER_1 DNS_SERVER_2"
 
     with two lines like this:
 
